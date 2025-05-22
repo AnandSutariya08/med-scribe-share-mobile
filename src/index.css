@@ -116,4 +116,29 @@
   .file-item-selected {
     @apply bg-accent border-primary;
   }
+  
+  /* Animation for recording indicator */
+  @keyframes pulse-recording {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+  
+  .animate-pulse-recording {
+    animation: pulse-recording 2s infinite;
+  }
+}
+
+/* Mobile-friendly adjustments */
+@media (max-width: 640px) {
+  .app-container {
+    @apply px-3 py-4;
+  }
+  
+  h1 {
+    @apply text-xl;
+  }
+  
+  .recording-btn {
+    @apply w-14 h-14;
+  }
 }

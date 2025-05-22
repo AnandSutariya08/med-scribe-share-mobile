@@ -21,15 +21,14 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawColor, setDrawColor] = useState('#0077CC'); // Primary blue
   const lastPosRef = useRef({ x: 0, y: 0 });
+  const animationRef = useRef<number | null>(null);
   
   useEffect(() => {
-    let stream: MediaStream | null = null;
-    
     const setupVideo = async () => {
       try {
         if (isRecording) {
           // Get user camera
-          stream = await navigator.mediaDevices.getUserMedia({ 
+          const stream = await navigator.mediaDevices.getUserMedia({ 
             video: true, 
             audio: true 
           });
@@ -60,7 +59,9 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({
           // Start recording
           if (canvasRef.current) {
             const recordingStream = canvasRef.current.captureStream(30); // 30fps
-            mediaRecorderRef.current = new MediaRecorder(recordingStream);
+            mediaRecorderRef.current = new MediaRecorder(recordingStream, {
+              mimeType: 'video/webm;codecs=vp9'
+            });
             chunksRef.current = [];
             
             mediaRecorderRef.current.ondataavailable = (e) => {
@@ -70,18 +71,27 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({
             };
             
             mediaRecorderRef.current.onstop = () => {
-              const videoBlob = new Blob(chunksRef.current, { type: 'video/mp4' });
+              const videoBlob = new Blob(chunksRef.current, { type: 'video/webm' });
               onRecordingComplete(videoBlob);
               chunksRef.current = [];
             };
             
-            mediaRecorderRef.current.start();
+            mediaRecorderRef.current.start(1000); // Collect data every second
           }
         } else if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
           mediaRecorderRef.current.stop();
+          if (animationRef.current) {
+            cancelAnimationFrame(animationRef.current);
+            animationRef.current = null;
+          }
+          
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+          }
         }
       } catch (err) {
-        toast.error('Error accessing camera');
+        toast.error('Error accessing camera: ' + (err as Error).message);
         console.error('Error accessing camera:', err);
       }
     };
@@ -96,8 +106,12 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
+      
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
     };
-  }, [isRecording, onRecordingComplete]);
+  }, [isRecording, onRecordingComplete, drawColor]);
   
   const setupRecordingCanvas = () => {
     if (!canvasRef.current || !videoRef.current || !drawCanvasRef.current) return;
@@ -118,26 +132,36 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({
         
         // Draw the video (picture-in-picture)
         const pipWidth = canvas.width * 0.25; // 25% of canvas width
-        const pipHeight = videoRef.current.videoHeight * (pipWidth / videoRef.current.videoWidth);
+        const pipHeight = (videoRef.current.videoHeight / videoRef.current.videoWidth) * pipWidth;
         ctx.drawImage(videoRef.current, canvas.width - pipWidth - 10, 10, pipWidth, pipHeight);
       }
       
-      requestAnimationFrame(drawFrame);
+      animationRef.current = requestAnimationFrame(drawFrame);
     };
     
     drawFrame();
   };
   
-  const handleDrawingStart = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleDrawingStart = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     if (!drawCanvasRef.current) return;
     
-    const rect = drawCanvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const canvas = drawCanvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    let x, y;
+    
+    if ('touches' in e) {
+      // Touch event
+      x = e.touches[0].clientX - rect.left;
+      y = e.touches[0].clientY - rect.top;
+    } else {
+      // Mouse event
+      x = e.clientX - rect.left;
+      y = e.clientY - rect.top;
+    }
     
     setIsDrawing(true);
     
-    const ctx = drawCanvasRef.current.getContext('2d');
+    const ctx = canvas.getContext('2d');
     if (ctx) {
       ctx.beginPath();
       ctx.moveTo(x, y);
@@ -145,15 +169,28 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({
     }
   };
   
-  const handleDrawingMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleDrawingMove = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     if (!isDrawing || !drawCanvasRef.current) return;
+    e.preventDefault();
     
-    const rect = drawCanvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const canvas = drawCanvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    let x, y;
     
-    const ctx = drawCanvasRef.current.getContext('2d');
+    if ('touches' in e) {
+      // Touch event
+      x = e.touches[0].clientX - rect.left;
+      y = e.touches[0].clientY - rect.top;
+    } else {
+      // Mouse event
+      x = e.clientX - rect.left;
+      y = e.clientY - rect.top;
+    }
+    
+    const ctx = canvas.getContext('2d');
     if (ctx) {
+      ctx.strokeStyle = drawColor;
+      ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.moveTo(lastPosRef.current.x, lastPosRef.current.y);
       ctx.lineTo(x, y);
@@ -171,7 +208,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({
   return (
     <Card className="p-4">
       {/* Hidden elements used for the recording process */}
-      <video ref={videoRef} className="hidden" muted />
+      <video ref={videoRef} className="hidden" muted playsInline />
       <canvas ref={canvasRef} width={640} height={480} className="hidden" />
       
       {/* Drawing canvas visible to the user */}
@@ -185,11 +222,14 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({
           onMouseMove={handleDrawingMove}
           onMouseUp={handleDrawingEnd}
           onMouseLeave={handleDrawingEnd}
+          onTouchStart={handleDrawingStart}
+          onTouchMove={handleDrawingMove}
+          onTouchEnd={handleDrawingEnd}
         />
         
         {isRecording && (
           <div className="absolute top-4 right-4 flex items-center bg-black/70 text-white px-2 py-1 rounded-md text-sm">
-            <div className="h-3 w-3 rounded-full bg-destructive animate-pulse mr-2"></div>
+            <div className="h-3 w-3 rounded-full bg-destructive animate-pulse-recording mr-2"></div>
             REC
           </div>
         )}
@@ -203,6 +243,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({
               className={`h-8 w-8 rounded-full border-2 ${drawColor === color ? 'border-black' : 'border-transparent'}`}
               style={{ backgroundColor: color }}
               onClick={() => setDrawColor(color)}
+              aria-label={`Select ${color} color`}
             />
           ))}
         </div>

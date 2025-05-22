@@ -18,14 +18,14 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   
   useEffect(() => {
-    let stream: MediaStream | null = null;
-    
     const setupAudio = async () => {
       try {
         if (isRecording) {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          streamRef.current = stream;
           
           // Set up audio context for visualizer
           audioContextRef.current = new AudioContext();
@@ -35,7 +35,9 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({
           analyserRef.current.fftSize = 256;
           
           // Set up media recorder
-          mediaRecorderRef.current = new MediaRecorder(stream);
+          mediaRecorderRef.current = new MediaRecorder(stream, {
+            mimeType: 'audio/webm'
+          });
           audioChunksRef.current = [];
           
           mediaRecorderRef.current.ondataavailable = (e) => {
@@ -45,12 +47,12 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({
           };
           
           mediaRecorderRef.current.onstop = () => {
-            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp3' });
+            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
             onRecordingComplete(audioBlob);
             audioChunksRef.current = [];
           };
           
-          mediaRecorderRef.current.start();
+          mediaRecorderRef.current.start(1000); // Collect data every second
           drawVisualizer();
         } else if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
           mediaRecorderRef.current.stop();
@@ -58,9 +60,19 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({
             cancelAnimationFrame(animationFrameRef.current);
             animationFrameRef.current = null;
           }
+          
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+          }
+          
+          if (audioContextRef.current) {
+            audioContextRef.current.close();
+            audioContextRef.current = null;
+          }
         }
       } catch (err) {
-        toast.error('Error accessing microphone');
+        toast.error('Error accessing microphone: ' + (err as Error).message);
         console.error('Error accessing microphone:', err);
       }
     };
@@ -72,8 +84,8 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({
         mediaRecorderRef.current.stop();
       }
       
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
       }
       
       if (audioContextRef.current) {

@@ -22,27 +22,30 @@ const Recording = () => {
   const { recordingType, fileName, email, selectedFiles } = location.state as LocationState;
   
   const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [recordingData, setRecordingData] = useState<{ blob: Blob, url: string } | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   
   useEffect(() => {
-    if (isRecording) {
+    if (isRecording && !isPaused) {
       timerRef.current = setInterval(() => {
         setElapsedTime(prev => prev + 1);
       }, 1000);
     } else {
       if (timerRef.current) {
         clearInterval(timerRef.current);
+        timerRef.current = null;
       }
     }
     
     return () => {
       if (timerRef.current) {
         clearInterval(timerRef.current);
+        timerRef.current = null;
       }
     };
-  }, [isRecording]);
+  }, [isRecording, isPaused]);
   
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -51,20 +54,28 @@ const Recording = () => {
   };
   
   const handleStartRecording = () => {
-    setIsRecording(true);
-    toast.info(`${recordingType === 'audio' ? 'Audio' : 'Video'} recording started`);
+    if (!recordingData) {
+      setIsRecording(true);
+      setIsPaused(false);
+      toast.info(`${recordingType === 'audio' ? 'Audio' : 'Video'} recording started`);
+    }
   };
   
   const handleStopRecording = (blob: Blob) => {
     setIsRecording(false);
+    setIsPaused(false);
     const url = URL.createObjectURL(blob);
     setRecordingData({ blob, url });
     toast.success('Recording completed successfully');
   };
   
   const handlePauseRecording = () => {
-    // This would be implemented with the actual recorder component
-    console.log('Pause recording');
+    setIsPaused(!isPaused);
+    if (!isPaused) {
+      toast.info('Recording paused');
+    } else {
+      toast.info('Recording resumed');
+    }
   };
   
   const handleSave = () => {
@@ -104,7 +115,7 @@ const Recording = () => {
         {recordingType === 'audio' ? 'Audio' : 'Video'} Recording
       </h1>
       
-      <Card className="p-6 flex flex-col items-center">
+      <Card className="p-6">
         <div className="mb-6 w-full">
           <p className="font-medium">{fileName}</p>
           <p className="text-sm text-muted-foreground">{email}</p>
@@ -115,9 +126,9 @@ const Recording = () => {
               <Video className="h-4 w-4 mr-2 text-primary" />
             )}
             <span className="text-sm font-medium">
-              {isRecording ? 'Recording in progress...' : 'Ready to record'}
+              {isRecording ? (isPaused ? 'Recording paused' : 'Recording in progress...') : 'Ready to record'}
             </span>
-            {isRecording && (
+            {isRecording && !isPaused && (
               <div className="ml-2 h-3 w-3 rounded-full bg-destructive animate-pulse-recording"></div>
             )}
             <span className="ml-auto font-mono">{formatTime(elapsedTime)}</span>
@@ -127,12 +138,12 @@ const Recording = () => {
         <div className="w-full mb-6">
           {recordingType === 'audio' ? (
             <AudioRecorder 
-              isRecording={isRecording}
+              isRecording={isRecording && !isPaused}
               onRecordingComplete={handleStopRecording}
             />
           ) : (
             <VideoRecorder 
-              isRecording={isRecording}
+              isRecording={isRecording && !isPaused}
               onRecordingComplete={handleStopRecording}
             />
           )}
@@ -160,7 +171,7 @@ const Recording = () => {
               <Button 
                 onClick={handlePauseRecording}
                 size="lg"
-                variant="outline"
+                variant={isPaused ? "default" : "outline"}
                 className="recording-btn"
               >
                 <Pause className="h-6 w-6" />

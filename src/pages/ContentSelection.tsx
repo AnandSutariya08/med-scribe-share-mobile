@@ -10,6 +10,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { toggleFileSelection, setCurrentCategory } from '@/store/contentSlice';
 import { ArrowLeft, Folder, File, Check } from 'lucide-react';
+import { RootState, AudioFile } from '@/types/AppTypes';
 
 interface LocationState {
   recordingType: 'audio' | 'video';
@@ -17,10 +18,24 @@ interface LocationState {
   email: string;
 }
 
-const CategoryItem = ({ item, isFolder = true, isSelected = false, onToggle }) => {
+interface CategoryItemProps {
+  item: AudioFile;
+  isFolder?: boolean;
+  isSelected?: boolean;
+  onToggle: () => void;
+  depth?: number;
+}
+
+const CategoryItem: React.FC<CategoryItemProps> = ({ 
+  item, 
+  isFolder = true, 
+  isSelected = false, 
+  onToggle,
+  depth = 0
+}) => {
   return (
     <div 
-      className={`file-item ${isSelected ? 'file-item-selected' : ''}`}
+      className={`file-item ${isSelected ? 'file-item-selected' : ''} ${depth > 0 ? 'ml-' + (depth * 4) : ''}`}
       onClick={onToggle}
     >
       {isFolder ? (
@@ -54,9 +69,9 @@ const ContentSelection = () => {
   const dispatch = useDispatch();
   const { recordingType, fileName, email } = location.state as LocationState;
   
-  const categories = useSelector(state => state.content.categories);
-  const currentCategory = useSelector(state => state.content.currentCategory);
-  const selectedFiles = useSelector(state => state.content.selectedFiles);
+  const categories = useSelector((state: RootState) => state.content.categories);
+  const currentCategory = useSelector((state: RootState) => state.content.currentCategory);
+  const selectedFiles = useSelector((state: RootState) => state.content.selectedFiles);
   
   const [expandedFolders, setExpandedFolders] = useState<number[]>([]);
   
@@ -90,6 +105,28 @@ const ContentSelection = () => {
   const handleBack = () => {
     navigate('/');
   };
+
+  const renderItems = (items: AudioFile[], depth = 0) => {
+    return items.map(item => (
+      <React.Fragment key={item.id}>
+        <Card className="overflow-hidden mb-2">
+          <CategoryItem 
+            item={item} 
+            isFolder={item.type === 1}
+            onToggle={() => item.type === 1 ? toggleFolder(item.id) : handleFileSelection(item.id)}
+            isSelected={selectedFiles.includes(item.id)}
+            depth={depth}
+          />
+          
+          {item.type === 1 && expandedFolders.includes(item.id) && item.children && (
+            <CardContent className="pt-2">
+              {renderItems(item.children, depth + 1)}
+            </CardContent>
+          )}
+        </Card>
+      </React.Fragment>
+    ));
+  };
   
   return (
     <div className="app-container">
@@ -108,7 +145,7 @@ const ContentSelection = () => {
         onValueChange={handleCategoryChange}
         value={currentCategory}
       >
-        <TabsList className="grid grid-cols-4 mb-6">
+        <TabsList className="grid grid-cols-4 mb-6 w-full">
           <TabsTrigger value="Audio">Audio</TabsTrigger>
           <TabsTrigger value="Edu">Edu</TabsTrigger>
           <TabsTrigger value="Movies">Movies</TabsTrigger>
@@ -117,31 +154,7 @@ const ContentSelection = () => {
         
         {Object.keys(categories).map(category => (
           <TabsContent key={category} value={category} className="space-y-4">
-            {categories[category].map(item => (
-              <Card key={item.id} className="overflow-hidden">
-                <CategoryItem 
-                  item={item} 
-                  isFolder={true}
-                  onToggle={() => toggleFolder(item.id)}
-                />
-                
-                {expandedFolders.includes(item.id) && item.children && (
-                  <CardContent className="pt-4">
-                    <div className="space-y-2 pl-4 border-l-2 border-muted">
-                      {item.children.map(child => (
-                        <CategoryItem 
-                          key={child.id}
-                          item={child}
-                          isFolder={false}
-                          isSelected={selectedFiles.includes(child.id)}
-                          onToggle={() => handleFileSelection(child.id)}
-                        />
-                      ))}
-                    </div>
-                  </CardContent>
-                )}
-              </Card>
-            ))}
+            {renderItems(categories[category])}
           </TabsContent>
         ))}
       </Tabs>
